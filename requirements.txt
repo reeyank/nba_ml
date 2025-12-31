@@ -1,0 +1,33 @@
+# NBA API for data collection
+nba_api>=1.11.3
+
+# Machine Learning
+xgboost>=2.0.0
+scikit-learn>=1.4.0
+
+# Data Processing
+pandas>=2.2.0
+numpy>=2.1.0
+
+# Progress bars
+tqdm>=4.66.0
+
+# Database
+# SQLite comes with Python, no additional package needed
+
+# Utilities
+python-dateutil>=2.9.0
+
+# Logging
+# logging comes with Python
+
+# Optional: For hyperparameter tuning
+optuna>=3.5.0
+
+# Optional: For visualization
+matplotlib>=3.9.0  # Updated to support numpy 2.x
+seaborn>=0.13.0
+
+# Optional: For web dashboard (stretch goal)
+flask>=3.0.0
+streamlit>=1.29.0
