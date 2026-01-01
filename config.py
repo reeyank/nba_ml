@@ -37,6 +37,18 @@ XGBOOST_PARAMS = {
     'n_jobs': -1
 }
 
+# LSTM hyperparameters
+LSTM_PARAMS = {
+    'sequence_length': 10,      # Number of prior games in sequence
+    'hidden_size': 64,          # LSTM hidden layer size
+    'num_layers': 2,            # Number of LSTM layers
+    'dropout': 0.2,             # Dropout rate
+    'learning_rate': 0.001,     # Adam learning rate
+    'batch_size': 64,           # Training batch size
+    'epochs': 100,              # Max training epochs
+    'patience': 15              # Early stopping patience
+}
+
 # Target MAE thresholds
 TARGET_MAE = {
     'points': 5.0,

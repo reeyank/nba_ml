@@ -1,5 +1,5 @@
 """
-Game Predictor - Makes predictions using trained XGBoost models
+Game Predictor - Makes predictions using trained models (XGBoost, LightGBM, or LSTM)
 """
 
 import pickle
@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from database_manager import DatabaseManager
 from features.rolling_stats import RollingStatsCalculator
 from features.contextual_features import ContextualFeaturesCalculator
-from config import MODELS_DIR
+from config import MODELS_DIR, LSTM_PARAMS
 
 
 class GamePredictor:
@@ -36,34 +36,107 @@ class GamePredictor:
 
         # Load models
         self.model_version = model_version or self._get_active_model_version()
+        self.model_type = self._detect_model_type()
         self.models = self._load_models()
         self.feature_columns = self._load_feature_columns()
 
-        print(f"✓ Loaded models: {self.model_version}")
+        # LSTM-specific attributes
+        self.scalers = {}
+        self.lstm_config = None
+        if self.model_type == 'lstm':
+            self._load_lstm_components()
+
+        print(f"Loaded {self.model_type.upper()} models: {self.model_version}")
 
     def _get_active_model_version(self) -> str:
-        """Get latest model version from directory"""
+        """Get latest model version from directory (prefers XGBoost over LightGBM)"""
         # List all model directories
         model_dirs = [d for d in MODELS_DIR.iterdir() if d.is_dir()]
         if not model_dirs:
             raise ValueError("No models found in directory")
-        # Sort by name (which includes timestamp) and get latest
-        latest_model = sorted(model_dirs)[-1].name
+
+        # Separate XGBoost and LightGBM models
+        xgb_models = [d for d in model_dirs if not d.name.startswith('lightgbm')]
+        lgb_models = [d for d in model_dirs if d.name.startswith('lightgbm')]
+
+        # Prefer XGBoost, fallback to LightGBM
+        if xgb_models:
+            latest_model = sorted(xgb_models)[-1].name
+        elif lgb_models:
+            latest_model = sorted(lgb_models)[-1].name
+        else:
+            latest_model = sorted(model_dirs)[-1].name
+
         return latest_model
 
+    def _detect_model_type(self) -> str:
+        """Detect if model is XGBoost or LightGBM"""
+        model_dir = MODELS_DIR / self.model_version
+
+        # Check for model type file
+        model_type_file = model_dir / "model_type.txt"
+        if model_type_file.exists():
+            with open(model_type_file, 'r') as f:
+                return f.read().strip()
+
+        # Fallback: check version name
+        if 'lightgbm' in self.model_version.lower():
+            return 'lightgbm'
+
+        return 'xgboost'
+
     def _load_models(self) -> Dict:
-        """Load trained XGBoost models"""
+        """Load trained models (XGBoost, LightGBM, or LSTM)"""
         model_dir = MODELS_DIR / self.model_version
         if not model_dir.exists():
             raise ValueError(f"Model directory not found: {model_dir}")
 
         models = {}
-        for target in ['points', 'rebounds', 'assists']:
-            model_path = model_dir / f"{target}_model.pkl"
-            with open(model_path, 'rb') as f:
-                models[target] = pickle.load(f)
+
+        if self.model_type == 'lstm':
+            # Load PyTorch LSTM models
+            import torch
+            from models.lstm_model import PlayerLSTM
+
+            for target in ['points', 'rebounds', 'assists']:
+                model_path = model_dir / f"{target}_model.pt"
+                checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+
+                model = PlayerLSTM(
+                    input_size=checkpoint['input_size'],
+                    hidden_size=checkpoint['hidden_size'],
+                    num_layers=checkpoint['num_layers']
+                )
+                model.load_state_dict(checkpoint['model_state_dict'])
+                model.eval()
+                models[target] = model
+        else:
+            # Load pickle models (XGBoost/LightGBM)
+            for target in ['points', 'rebounds', 'assists']:
+                model_path = model_dir / f"{target}_model.pkl"
+                with open(model_path, 'rb') as f:
+                    models[target] = pickle.load(f)
 
         return models
+
+    def _load_lstm_components(self):
+        """Load LSTM-specific components (scalers and config)"""
+        model_dir = MODELS_DIR / self.model_version
+
+        # Load scalers for each target
+        for target in ['points', 'rebounds', 'assists']:
+            scaler_path = model_dir / f"{target}_scaler.pkl"
+            if scaler_path.exists():
+                with open(scaler_path, 'rb') as f:
+                    self.scalers[target] = pickle.load(f)
+
+        # Load LSTM config
+        config_path = model_dir / "lstm_config.pkl"
+        if config_path.exists():
+            with open(config_path, 'rb') as f:
+                self.lstm_config = pickle.load(f)
+        else:
+            self.lstm_config = LSTM_PARAMS
 
     def _load_feature_columns(self) -> list:
         """Load feature column names"""
@@ -193,6 +266,51 @@ class GamePredictor:
 
         return feature_df
 
+    def build_lstm_sequence(
+        self,
+        player_id: int,
+        game_date: str
+    ) -> Optional[np.ndarray]:
+        """
+        Build sequence of recent games for LSTM prediction
+
+        Args:
+            player_id: Player's ID
+            game_date: Date of game to predict (get games before this)
+
+        Returns:
+            Numpy array of shape (seq_len, n_features) or None if insufficient data
+        """
+        seq_len = self.lstm_config.get('sequence_length', 10)
+
+        # Get player's recent games
+        recent_games = self.db.get_player_games_before_date(player_id, game_date, limit=seq_len)
+
+        if len(recent_games) < seq_len:
+            print(f"Insufficient game history for LSTM ({len(recent_games)}/{seq_len} games)")
+            return None
+
+        # Sort by date ascending (oldest first)
+        recent_games = recent_games.sort_values('game_date').reset_index(drop=True)
+
+        # Parse is_home from matchup
+        recent_games['is_home'] = recent_games['matchup'].apply(lambda x: 1 if 'vs.' in str(x) else 0)
+
+        # Calculate rest days
+        recent_games['game_date_dt'] = pd.to_datetime(recent_games['game_date'])
+        recent_games['rest_days'] = recent_games['game_date_dt'].diff().dt.days.fillna(3)
+        recent_games['rest_days'] = recent_games['rest_days'].clip(0, 10)
+
+        # Fill NaN in percentage columns
+        for col in ['field_goal_pct', 'three_point_pct', 'free_throw_pct']:
+            if col in recent_games.columns:
+                recent_games[col] = recent_games[col].fillna(0)
+
+        # Extract features in correct order
+        sequence = recent_games[self.feature_columns].values
+
+        return sequence
+
     def predict_game(
         self,
         player_name: str = None,
@@ -224,36 +342,67 @@ class GamePredictor:
                 raise ValueError("Must provide either player_name or player_id")
             player_id = self._get_player_id_by_name(player_name)
             if player_id is None:
-                print(f"❌ Player '{player_name}' not found")
+                print(f"Player '{player_name}' not found")
                 return None
         else:
             player_name = player_name or f"Player {player_id}"
 
-        # Build features
-        features = self.build_prediction_features(
-            player_id=player_id,
-            game_date=game_date,
-            opponent_team_id=opponent_team_id,
-            is_home=is_home,
-            current_team_id=current_team_id,
-            season=season
-        )
-
-        if features is None:
-            return None
-
-        # Make predictions
+        # Make predictions based on model type
         predictions = {
             'player_name': player_name,
             'player_id': player_id,
             'game_date': game_date,
             'is_home': is_home,
             'opponent_team_id': opponent_team_id,
+            'model_type': self.model_type
         }
 
-        for target, model in self.models.items():
-            pred = model.predict(features)[0]
-            predictions[f'predicted_{target}'] = round(pred, 1)
+        if self.model_type == 'lstm':
+            # LSTM prediction using sequences
+            sequence = self.build_lstm_sequence(player_id, game_date)
+            if sequence is None:
+                return None
+
+            import torch
+
+            for target, model in self.models.items():
+                # Scale the sequence using the target's scaler
+                if target in self.scalers:
+                    scaler = self.scalers[target]
+                    seq_scaled = scaler.transform(sequence)
+                else:
+                    seq_scaled = sequence
+
+                # Convert to tensor and add batch dimension
+                seq_tensor = torch.FloatTensor(seq_scaled).unsqueeze(0)
+
+                # Predict
+                with torch.no_grad():
+                    pred = model(seq_tensor).item()
+
+                predictions[f'predicted_{target}'] = round(pred, 1)
+        else:
+            # Tree-based model prediction (XGBoost/LightGBM)
+            features = self.build_prediction_features(
+                player_id=player_id,
+                game_date=game_date,
+                opponent_team_id=opponent_team_id,
+                is_home=is_home,
+                current_team_id=current_team_id,
+                season=season
+            )
+
+            if features is None:
+                return None
+
+            for target, model in self.models.items():
+                # Handle different prediction APIs
+                if self.model_type == 'lightgbm':
+                    pred = model.predict(features, num_iteration=model.best_iteration)[0]
+                else:  # xgboost
+                    pred = model.predict(features)[0]
+
+                predictions[f'predicted_{target}'] = round(pred, 1)
 
         return predictions
 

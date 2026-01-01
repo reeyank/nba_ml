@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NBA Stats Predictor | Multi-Model AI Predictions</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="main-header">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 2C12 2 12 12 12 12"/>
+                            <path d="M12 12C12 12 22 12 22 12"/>
+                            <path d="M2 12C6 12 12 12 12 12"/>
+                            <path d="M12 12C12 12 12 22 12 22"/>
+                            <path d="M4.93 4.93C4.93 4.93 12 12 12 12"/>
+                            <path d="M19.07 4.93C19.07 4.93 12 12 12 12"/>
+                        </svg>
+                    </div>
+                    <div class="logo-text">
+                        <span class="logo-title">NBA Predictor</span>
+                        <span class="logo-subtitle">XGBoost + LightGBM + LSTM</span>
+                    </div>
+                </div>
+                <div class="header-status" id="model-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Loading models...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Games Section -->
+            <section class="section games-section">
+                <div class="section-header">
+                    <h2>Select a Game</h2>
+                    <div class="section-actions">
+                        <button class="btn btn-primary btn-sm" onclick="loadRecentGames()">
+                            Recent Games
+                        </button>
+                    </div>
+                </div>
+                <div id="games-list" class="games-grid">
+                    <div class="loading-placeholder">Loading games...</div>
+                </div>
+            </section>
+
+            <!-- Predictions Section -->
+            <section class="section predictions-section" id="predictions-section" style="display: none;">
+                <div class="section-header">
+                    <div>
+                        <h2 id="predictions-title">Game Predictions</h2>
+                        <p class="section-subtitle" id="predictions-subtitle"></p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="closePredictions()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                        Close
+                    </button>
+                </div>
+
+                <div id="predictions-loading" class="loading-state" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Loading predictions from all models...</p>
+                </div>
+
+                <div id="predictions-container"></div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="main-footer">
+            <p>Predictions powered by XGBoost, LightGBM, and LSTM models trained on NBA game data</p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
