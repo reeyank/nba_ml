@@ -1,0 +1,26 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Data storage (too large for serverless)
+data_storage/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Development files
+.git/
+.gitignore
+*.md
+notebooks/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+
+# Local config
+.env.local
